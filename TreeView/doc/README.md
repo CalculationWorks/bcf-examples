@@ -22,7 +22,7 @@ indicates a node is selected (child end node-row parent `!= null`)
 #### Columns
 
 | table  | column | type |default  | function |
-| --- | --- | --- | --- |
+| --- | --- | --- | --- | --- |
 Controls|NodeIndent|`int`|`16`
 Controls|NodeTextMinSize|`Size`|`new Size(23, 16)`
 Controls|NodeTextMaxSize|`Size`|`new Size(300, 150)`
