@@ -54,19 +54,19 @@ namespace BcfTreeView.Bcf
         /// <summary>
         /// Removes a node from its location. 
         /// </summary>
+        /// <remarks>
+        /// Since <see cref="ControlRow"/> will be set <see langword="null"/> a transaction with <see cref="BcfTransaction.EnforceConstraints"/> = <see langword="false"/> is required.
+        /// </remarks>
         public void Unlink()
         {
-            using (this.GetScope())
-            {
-                var nextSibling = NextSiblingRow;
-                if (nextSibling != null) nextSibling.PreviousSiblingRow = PreviousSiblingRow;
-                PreviousSiblingRow = null;
-                ParentNodeRow = null;
-                ControlRow = null;
-                RootControlRow = null;
-            }
+            var nextSibling = NextSiblingRow;
+            if (nextSibling != null) nextSibling.PreviousSiblingRow = PreviousSiblingRow;
+            PreviousSiblingRow = null;
+            ParentNodeRow = null;
+            ControlRow = null;
+            RootControlRow = null;
         }
-        
+
 
         public void SetAs(NodeTargetMode mode, [CanBeNull] NodeRow target)
         {
@@ -78,7 +78,8 @@ namespace BcfTreeView.Bcf
                     var firstRootNode = Table.DataSet.NodesTable.FirstOrDefault(n => n.ParentNodeRow == null && n.ControlRow == currentControlRow)?.FirstSibling;
                     if (mode == NodeTargetMode.FirstChild) Link(null, null, firstRootNode);
                     else Link(null, firstRootNode?.LastSibling, null);
-                } else
+                }
+                else
                 {
                     switch (mode)
                     {

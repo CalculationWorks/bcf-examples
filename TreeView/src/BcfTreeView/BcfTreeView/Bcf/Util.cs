@@ -52,7 +52,7 @@ namespace BcfTreeView.Bcf
         {
             if (model == null) throw new ArgumentNullException(nameof(model));
             if (onError != null || model.CurrentTransaction?.EnforceConstraints != false) return new Scope(model.BeginTransaction(enforceConstraints: false), onError);
-            return Scope.None;
+            return null;
         }
 
         /// <summary>

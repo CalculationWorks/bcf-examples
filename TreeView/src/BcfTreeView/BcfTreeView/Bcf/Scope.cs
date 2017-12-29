@@ -13,15 +13,13 @@ namespace BcfTreeView.Bcf
     /// </summary>
     internal sealed class Scope : IDisposable
     {
-        [CanBeNull]
+        [NotNull]
         private readonly BcfTransaction _transaction;
 
         [CanBeNull]
         private readonly Action<Exception> _onError;
 
-        internal static readonly Scope None = null;
-
-        internal Scope([CanBeNull]BcfTransaction transaction, Action<Exception> onError = null)
+        internal Scope([NotNull]BcfTransaction transaction, Action<Exception> onError = null)
         {
             _transaction = transaction;
             _onError = onError;
@@ -32,8 +30,9 @@ namespace BcfTreeView.Bcf
         {
             try
             {
-                _transaction?.Commit();
-            } catch(Exception ex)
+                _transaction.Commit();
+            }
+            catch (Exception ex)
             {
                 // ReSharper disable once PossibleNullReferenceException
                 _transaction.Rollback();
