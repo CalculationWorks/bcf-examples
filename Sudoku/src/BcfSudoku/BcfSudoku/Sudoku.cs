@@ -9,27 +9,38 @@ using CalculationWorks.BusinessModel;
 
 namespace BcfSudoku
 {
+    /// <summary>
+    /// The SUDOKU model.
+    /// </summary>
     public class Sudoku
     {
-        private SudokuDataSet _model;
+        private readonly SudokuDataSet _model;
 
-        public Sudoku()
+        /// <summary>
+        /// Creates a new Sudoku puzzle.
+        /// </summary>
+        /// <param name="cross"><c>true</c> to add cross clusters.</param>
+        /// <param name="hyper"><c>true</c> to add hyper clusters.</param>
+        /// <param name="rnd"><c>null</c> to generate an empty puzzle - or - not <c>null</c> to generate a random solution.</param>
+        public Sudoku(bool cross = false, bool hyper = false, Random rnd = null)
         {
             _model = new SudokuDataSet();
+            Cross = cross;
+            Hyper = hyper;
 
             // We do not expect exceptions and we don't use triggers - compensation of failed subtransactions is not required.
             _model.TransactionFactory.MicroTransactionMode = BcfMicroTransactionMode.Disabled;
 
             // Transaction is explicit used to suppress calculation each time model is updated (add rows & set values).
-            // Without transaction the model will be computed 27 times when adding clusters, 81 times when adding cells and 243 (81x3) when adding link rows.
+            // Without an explicit transaction the model will implicit create transactions 27 times when adding clusters, 81 times when adding cells and 243 (81x3) when adding link rows.
             // We will add rows so constraint-checks should be deferred until commit.
             var transaction = _model.BeginTransaction(enforceConstraints: false);
 
-            // BcfDataSet manages model changes. When a value is updated or a row is added or removed it adds depending computed items (computed cells and rules) to a list.
+            // BcfDataSet manages model updates. When a value is updated or a row is added or removed it adds depending computed items (computed cells and rules) to a list.
             // When calling Transaction.Compute(true) - implicit called when transaction commits or a subtransaction is created - the items will be recomputed.
             // 
-            // This method is called on an empty model - so the list of computed items is empty when transaction begins and contains all items when transaction is finished.
-            // When entering dumb mode all computable items will be added to the list and the change management is modified to collect added items only.
+            // This method is called on an empty model - so the list of computed items is empty when transaction begins and contains all items when transaction will be committed.
+            // When entering dumb mode all computable items will be added to the list and the change management is instructed to collect added items only.
             // On a transaction in dumb mode updates will be processed minimal faster and all items will be recomputed when calling Transaction.Compute(true).
             // In short: stop change tracking - recompute all on commit
             transaction.EnterDumbMode();
@@ -71,16 +82,177 @@ namespace BcfSudoku
                 }
             }
 
-            transaction.Commit();
-
             // HelperClusters are used to detect whether model is completely filled or not.
-            HelperClusters = horizontalClusters;
+            HelperClusters = squareClusters;
+
+            // Add cross clusters
+            if (Cross)
+            {
+                var cross1 = _model.ClusterTable.AddNewRow();
+                var cross2 = _model.ClusterTable.AddNewRow();
+                for (int i = 0; i < 9; i++)
+                {
+                    // link cell with clusters
+                    var linkToCross1Cluster = _model.LinkTable.AddNewRow();
+                    linkToCross1Cluster.ClusterRow = cross1;
+                    linkToCross1Cluster.CellRow = _model.CellTable[i + i * 9];
+
+                    var linkToCross2Cluster = _model.LinkTable.AddNewRow();
+                    linkToCross2Cluster.ClusterRow = cross2;
+                    linkToCross2Cluster.CellRow = _model.CellTable[(8 - i) + i * 9];
+                }
+            }
+
+            // Add hyper clusters
+            if (Hyper)
+            {
+                var hyper1 = _model.ClusterTable.AddNewRow();
+                var hyper2 = _model.ClusterTable.AddNewRow();
+                var hyper3 = _model.ClusterTable.AddNewRow();
+                var hyper4 = _model.ClusterTable.AddNewRow();
+
+                for (var y = 0; y < 3; y++)
+                {
+                    for (var x = 0; x < 3; x++)
+                    {
+                        // link cell with clusters
+                        var linkToHyper1Cluster = _model.LinkTable.AddNewRow();
+                        linkToHyper1Cluster.ClusterRow = hyper1;
+                        linkToHyper1Cluster.CellRow = GetCellRow(x + 1, y + 1);
+
+                        var linkToHyper2Cluster = _model.LinkTable.AddNewRow();
+                        linkToHyper2Cluster.ClusterRow = hyper2;
+                        linkToHyper2Cluster.CellRow = GetCellRow(x + 5, y + 1);
+
+                        var linkToHyper3Cluster = _model.LinkTable.AddNewRow();
+                        linkToHyper3Cluster.ClusterRow = hyper3;
+                        linkToHyper3Cluster.CellRow = GetCellRow(x + 1, y + 5);
+
+                        var linkToHyper4Cluster = _model.LinkTable.AddNewRow();
+                        linkToHyper4Cluster.ClusterRow = hyper4;
+                        linkToHyper4Cluster.CellRow = GetCellRow(x + 5, y + 5);
+                    }
+                }
+            }
+
+            // if rnd is set create a random solution
+            if (rnd != null) Load(Solve(x => x.ToString(), rnd).First());
+
+            transaction.Commit();
+        }
+
+        private CellRow GetCellRow(int x, int y)
+        {
+            return _model.CellTable[x + 9 * y];
+        }
+
+        /// <summary>
+        /// Generates a new puzzle based specified <paramref name="solved"/>. 
+        /// </summary>
+        /// <param name="solved">The solution the puzzle will be generated for.</param>
+        /// <param name="rnd">The random.</param>
+        /// <param name="backtracking">indicates how backtracking is used to reduce the number of predefined values.</param>
+        public Sudoku(Sudoku solved, Random rnd, SudokuBacktrackingOption backtracking = SudokuBacktrackingOption.Allowed) : this(solved.Cross, solved.Hyper)
+        {
+            if (solved == null) throw new ArgumentNullException(nameof(solved));
+            if (rnd == null) throw new ArgumentNullException(nameof(rnd));
+            if (solved.GetState() != SudokuState.Solved) throw new ArgumentException("specified sudoku has to be solved");
+
+            BcfTransaction mainTransaction = null;
+            // a loop to enforce "Not Solvable With AutoComplete" when backtracking is SudokuBacktrackingOption.Required
+            do
+            {
+                if (mainTransaction != null) mainTransaction.Rollback();
+                mainTransaction = _model.BeginTransaction();
+
+                // indexes of filled cells
+                var predefined = new List<int>();
+
+                // generate a puzzle solvable using autocomplete
+                {
+                    var subtransaction = _model.BeginTransaction();
+                    var cellEntries = _model.CellTable.Select((cellRow, index) => new { cellRow, index });
+                    while (GetState() != SudokuState.Solved)
+                    {
+                        cellEntries = cellEntries.Where(entry => entry.cellRow.Value == 0).Randomize(rnd);
+
+                        var indexOfBest = -1;
+                        var bestCellCandidateCount = 0;
+
+                        foreach (var cellEntry in cellEntries)
+                        {
+                            var cellCandidateCount = Util.BitCountRegister[cellEntry.cellRow.AllowedValues];
+                            if (cellCandidateCount > bestCellCandidateCount)
+                            {
+                                bestCellCandidateCount = cellCandidateCount;
+                                indexOfBest = cellEntry.index;
+                                if (bestCellCandidateCount == 9) break; // 9 is best possible result
+                            }
+                        }
+
+                        _model.CellTable[indexOfBest].Value = solved._model.CellTable[indexOfBest].Value;
+                        AutoComplete();
+                        predefined.Add(indexOfBest);
+                    }
+
+                    // AutoComplete() has updated the model. In next step we need values of predefined only 
+                    // so rollback subtransaction
+                    subtransaction.Rollback();
+                }
+
+                {
+                    // and set predefined only
+                    foreach (var rowIndex in predefined)
+                    {
+                        _model.CellTable[rowIndex].Value = solved._model.CellTable[rowIndex].Value;
+                    }
+                }
+
+                // try to omit each predefined value and if the puzzle remains solvable - remove it.
+                {
+                    foreach (var rowIndex in predefined)
+                    {
+                        var subtransaction = _model.BeginTransaction();
+                        _model.CellTable[rowIndex].Value = 0;
+                        if (backtracking != SudokuBacktrackingOption.Disabled)
+                        {
+                            if (Solve(x => 0).Take(2).Count() == 1) subtransaction.Commit();
+                        }
+                        else
+                        {
+                            if (CanBeSolvedUsingAutoComplete()) subtransaction.Commit();
+                        }
+
+                        if (!subtransaction.IsCommitted) subtransaction.Rollback();
+                    }
+                }
+
+            } while (backtracking == SudokuBacktrackingOption.Required && CanBeSolvedUsingAutoComplete());
+        }
+
+        public bool CanBeSolvedUsingAutoComplete()
+        {
+            var transaction = _model.BeginTransaction();
+            AutoComplete();
+            var rv = GetState() == SudokuState.Solved;
+            transaction.Rollback();
+            return rv;
         }
 
         /// <summary>
         /// Used to detect whether model is completely filled or not.
         /// </summary>
-        private List<ClusterRow> HelperClusters { get; set; }
+        private List<ClusterRow> HelperClusters { get; }
+
+        /// <summary>
+        /// Indicates whether the two cross clusters are added
+        /// </summary>
+        public bool Cross { get; }
+
+        /// <summary>
+        /// Indicates whether the four hyper clusters are added
+        /// </summary>
+        public bool Hyper { get; }
 
         /// <summary>
         /// Returns the state.
@@ -90,7 +262,7 @@ namespace BcfSudoku
         {
             // Return value depends on ValidationResults - the list of computed error-messages.
             // So if there are outstanding calculation tasks - process them now to make sure the list is up to date.
-            if (!ReferenceEquals(null, _model.CurrentTransaction) && _model.CurrentTransaction.HasDirtyItems) _model.CurrentTransaction.Compute(true);
+            if (!ReferenceEquals(null, _model.CurrentTransaction) && _model.CurrentTransaction.HasDirtyItems) _model.CurrentTransaction.Compute(computeRules: true);
 
             // Any rule returned not null - sudoku is wrong.
             if (_model.Faults.Count != 0) return SudokuState.Error;
@@ -104,7 +276,11 @@ namespace BcfSudoku
             return SudokuState.Valid;
         }
 
-
+        /// <summary>
+        /// Autocompletes the model.
+        /// 1. If a cell has only one value-candidate this value will be set
+        /// 2. If a missing value of a cluster can be set to single cell only the cells value will be set.
+        /// </summary>
         private void AutoComplete()
         {
             bool updated;
@@ -112,7 +288,7 @@ namespace BcfSudoku
             {
                 // update computed values
                 // omit compute error-messages - not relevant here
-                _model.CurrentTransaction.Compute(false);
+                _model.CurrentTransaction.Compute(computeRules: false);
                 updated = false;
 
                 // solve cells with only one possible value
@@ -148,14 +324,14 @@ namespace BcfSudoku
         }
 
         /// <summary>
-        /// Modifies the <see cref="Sudoku"/> and iterates over all valid solutions.
+        /// Modifies the model and iterates over all valid solutions.
         /// </summary>
         /// <typeparam name="T">Return type of resultSelector function</typeparam>
         /// <param name="resultSelector">Function called when a valid solution is found.</param>
         /// <param name="rnd">Optional. Used to create solutions in a random order.</param>
         /// <returns>All valid solutions</returns>
         /// <remark>
-        /// Original state will be restored when enumeration completed.
+        /// Original state will be restored when enumeration completed by rolling back all changes (<see cref="SolutionEnumerator{T}.Dispose"/>)
         /// </remark>
         public IEnumerable<T> Solve<T>(Func<Sudoku, T> resultSelector, Random rnd = null)
         {
@@ -165,6 +341,24 @@ namespace BcfSudoku
         public override string ToString()
         {
             return new string(_model.CellTable.Select(cell => Util.CellValueToChar(cell.Value)).ToArray());
+        }
+
+        public string Csv
+        {
+            get
+            {
+                var rv = new StringBuilder();
+                int index = 0;
+                foreach (var value in _model.CellTable.Select(cell => Util.CellValueToChar(cell.Value)))
+                {
+                    if (value == '0') rv.Append("\"\"");
+                    else rv.Append($"\"{value}\"");
+                    if ((index + 1) % 9 == 0) rv.Append(Environment.NewLine);
+                    else rv.Append((char)9);
+                    index++;
+                }
+                return rv.ToString();
+            }
         }
 
         public void Load(string charValues)
@@ -225,17 +419,12 @@ namespace BcfSudoku
                 _resultSelector = resultSelector;
                 _rnd = rnd;
                 _stack = new Stack<AllowedValueEnumerator>();
-                _transaction = sudoku._model.BeginTransaction();
+                _transaction = sudoku._model.BeginTransaction().Compute();
                 _stack.Push(new AllowedValueEnumerator(sudoku, rnd));
             }
 
             public void Dispose()
             {
-                while (_stack.Count != 0)
-                {
-                    var valueEnumerator = _stack.Pop();
-                    valueEnumerator.Dispose();
-                }
                 _transaction.Rollback();
             }
 

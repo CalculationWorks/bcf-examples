@@ -23,4 +23,11 @@ namespace BcfSudoku
         /// </summary>
         Solved,
     }
+
+    public enum SudokuBacktrackingOption
+    {
+        Disabled,
+        Allowed,
+        Required,
+    }
 }
