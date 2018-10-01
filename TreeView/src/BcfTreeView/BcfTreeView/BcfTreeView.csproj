@@ -29,8 +29,8 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="CalculationWorks.BusinessModel, Version=4.1.1.0, Culture=neutral, PublicKeyToken=beb2c161b5f4b341, processorArchitecture=MSIL">
-      <HintPath>..\packages\CalculationWorks.BusinessModel.4.1.1\lib\net45\CalculationWorks.BusinessModel.dll</HintPath>
+    <Reference Include="CalculationWorks.BusinessModel, Version=4.2.0.2, Culture=neutral, PublicKeyToken=beb2c161b5f4b341, processorArchitecture=MSIL">
+      <HintPath>..\packages\CalculationWorks.BusinessModel.4.2.0\lib\net45\CalculationWorks.BusinessModel.dll</HintPath>
     </Reference>
     <Reference Include="JetBrains.Annotations, Version=7.1.3000.2254, Culture=neutral, PublicKeyToken=1010a0d8d6380325, processorArchitecture=MSIL">
       <HintPath>..\packages\ReSharper.Annotations.7.1.3.130415\lib\net\JetBrains.Annotations.dll</HintPath>

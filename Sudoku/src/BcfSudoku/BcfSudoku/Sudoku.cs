@@ -262,7 +262,7 @@ namespace BcfSudoku
         {
             // Return value depends on ValidationResults - the list of computed error-messages.
             // So if there are outstanding calculation tasks - process them now to make sure the list is up to date.
-            if (!ReferenceEquals(null, _model.CurrentTransaction) && _model.CurrentTransaction.HasDirtyItems) _model.CurrentTransaction.Compute(computeRules: true);
+            if (!ReferenceEquals(null, _model.CurrentTransaction) && _model.CurrentTransaction.HasOutdatedItems) _model.CurrentTransaction.Compute(computeRules: true);
 
             // Any rule returned not null - sudoku is wrong.
             if (_model.Faults.Count != 0) return SudokuState.Error;
